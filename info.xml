@@ -9,7 +9,7 @@
     <email>endres@systopia.de</email>
   </maintainer>
   <releaseDate>2018-06-28</releaseDate>
-  <version>1.4.gp-1.dev</version>
+  <version>1.4.gp-1.dev-3651115c</version>
   <develStage>dev</develStage>
   <compatibility>
     <ver>4.6</ver>
