@@ -49,7 +49,7 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate {
     if (empty($params['id'])) {
       CRM_Utils_SepaCustomisationHooks::create_mandate($params);
 
-      if (empty($params['reference'])) {
+      if (empty($params['reference']) && !empty($params['creditor_id'])) {
         // If no mandate reference was supplied by the caller nor the customisation hook, create a nice default one.
         $dao = new CRM_Core_DAO();
         $database = $dao->database();
