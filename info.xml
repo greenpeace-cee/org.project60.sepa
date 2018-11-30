@@ -9,8 +9,8 @@
     <email>endres@systopia.de</email>
   </maintainer>
   <releaseDate>2018-11-13</releaseDate>
-  <version>1.4.alpha4</version>
-  <develStage>alpha4</develStage>
+  <version>1.4.alpha4-GP1</version>
+  <develStage>alpha</develStage>
   <compatibility>
     <ver>4.6</ver>
     <ver>4.7</ver>
