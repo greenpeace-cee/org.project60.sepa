@@ -90,10 +90,10 @@ class CRM_Sepa_Logic_MandateRepairs {
    */
   public function runAllRepairs()
   {
-    $this->detectOrphanedInProgressContributions();
+    /*$this->detectOrphanedInProgressContributions();
     $this->repairOpenGroupContributionStatus();
     $this->repairFrstPaymentInstruments();
-    $this->repairInstallmentPaymentInstruments();
+    $this->repairInstallmentPaymentInstruments();*/
 
     // detect/repair
     //$this->detectOrphanedPendingContributions();
