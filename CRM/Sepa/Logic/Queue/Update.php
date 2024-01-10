@@ -31,7 +31,7 @@ class CRM_Sepa_Logic_Queue_Update {
    * @return CRM_Queue_Task
    */
   private static function createTask($cmd, $params = []) {
-    $task = CRM_Queue_Task(
+    $task = new CRM_Queue_Task(
       ['CRM_Sepa_Logic_Queue_Update', 'run'],
       [$cmd, $params],
       self::taskTitle($cmd, $params)
@@ -100,7 +100,7 @@ class CRM_Sepa_Logic_Queue_Update {
     // Create a queue
     $queue = Civi::queue('sdd_update', [
       'error'  => 'delete',
-      'reset'  => FALSE,
+      'reset'  => TRUE,
       'runner' => 'task',
       'type'   => 'SqlParallel',
     ]);
@@ -133,6 +133,24 @@ class CRM_Sepa_Logic_Queue_Update {
     }
 
     $queue->createItem(self::createTask('FINISH'));
+
+    $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
+
+    if (!$bgqueue_enabled) {
+      $runner_title = ts('Updating %1 SEPA Groups', [
+        1        => $mode,
+        'domain' => 'org.project60.sepa',
+      ]);
+
+      $runner = new CRM_Queue_Runner([
+        'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
+        'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active'),
+        'queue'     => $queue,
+        'title'     => $runner_title,
+      ]);
+
+      $runner->runAllViaWeb();
+    }
   }
 
   /**
@@ -143,6 +161,8 @@ class CRM_Sepa_Logic_Queue_Update {
    * @return bool
    */
   public static function run($_ctx, $cmd, $params) {
+    $_ctx->queue->setStatus('active');
+
     $creditor_id = $params['creditor_id'] ?? NULL;
     $limit = $params['limit'] ?? NULL;
     $mode = $params['mode'] ?? NULL;
