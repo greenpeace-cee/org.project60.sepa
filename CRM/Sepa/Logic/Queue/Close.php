@@ -30,7 +30,7 @@ class CRM_Sepa_Logic_Queue_Close {
    * @return CRM_Queue_Task
    */
   private static function createTask($mode, $params = []) {
-    $task = CRM_Queue_Task(
+    $task = new CRM_Queue_Task(
       ['CRM_Sepa_Logic_Queue_Close', 'run'],
       [$mode, $params],
       self::taskTitle($mode, $params)
@@ -51,7 +51,7 @@ class CRM_Sepa_Logic_Queue_Close {
     // Create a queue
     $queue = Civi::queue('sdd_close', [
       'error'  => 'delete',
-      'reset'  => FALSE,
+      'reset'  => TRUE,
       'runner' => 'task',
       'type'   => 'SqlParallel',
     ]);
@@ -104,6 +104,24 @@ class CRM_Sepa_Logic_Queue_Close {
         'target_status_id' => $target_group_status,
         'txgroup'          => $txgroup,
       ]));
+
+      $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
+
+      if (!$bgqueue_enabled) {
+        $runner_title = ts('Closing SDD Group(s) [%1]', [
+          1        => implode(',', $txgroup_ids),
+          'domain' => 'org.project60.sepa',
+        ]);
+
+        $runner = new CRM_Queue_Runner([
+          'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
+          'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=closed'),
+          'queue'     => $queue,
+          'title'     => $runner_title,
+        ]);
+
+        $runner->runAllViaWeb();
+      }
     }
   }
 
@@ -116,6 +134,8 @@ class CRM_Sepa_Logic_Queue_Close {
    * @return bool
    */
   public static function run($_ctx, $mode, $params) {
+    $_ctx->queue->setStatus('active');
+
     $target_status_id = $params['target_status_id'] ?? NULL;
     $txgroup = $params['txgroup'] ?? NULL;
 
