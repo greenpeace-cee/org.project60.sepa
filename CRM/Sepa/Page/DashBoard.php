@@ -145,6 +145,7 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
     if ($async_batching) {
       // use the runner rather that the API (this doesn't return)
       CRM_Sepa_Logic_Queue_Update::launchUpdateRunner($mode);
+      CRM_Utils_System::civiExit();
     }
 
     if ($mode=="OOFF") {
