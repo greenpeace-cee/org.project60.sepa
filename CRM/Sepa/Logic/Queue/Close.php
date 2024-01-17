@@ -50,7 +50,7 @@ class CRM_Sepa_Logic_Queue_Close {
   public static function launchCloseRunner($txgroup_ids, $target_group_status, $target_contribution_status) {
     // Create a queue
     $queue = Civi::queue('sdd_close', [
-      'error'  => 'delete',
+      'error'  => 'abort',
       'reset'  => TRUE,
       'runner' => 'task',
       'type'   => 'SqlParallel',
