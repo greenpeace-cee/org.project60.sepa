@@ -99,7 +99,7 @@ class CRM_Sepa_Logic_Queue_Update {
 
     // Create a queue
     $queue = Civi::queue('sdd_update', [
-      'error'  => 'delete',
+      'error'  => 'abort',
       'reset'  => TRUE,
       'runner' => 'task',
       'type'   => 'SqlParallel',
