@@ -30,7 +30,13 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
 
   function run() {
     CRM_Utils_System::setTitle(ts('CiviSEPA Dashboard', array('domain' => 'org.project60.sepa')));
-    // get requested group status
+
+    // Check current batching status
+    $batching_lock_setting = Civi::settings()->get('sdd_async_batching_lock');
+    $batching_in_progress = (bool) ($batching_lock_setting['sdd_async_update_lock'] ?? 0);
+    $this->assign('batching_in_progress', $batching_in_progress);
+
+    // Get requested group status
     if (isset($_REQUEST['status'])) {
       if ($_REQUEST['status'] != 'open' && $_REQUEST['status'] != 'closed') {
         $status = 'open';
@@ -145,7 +151,14 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
     if ($async_batching) {
       // use the runner rather that the API (this doesn't return)
       CRM_Sepa_Logic_Queue_Update::launchUpdateRunner($mode);
-      CRM_Utils_System::civiExit();
+
+      CRM_Core_Session::setStatus(ts(
+        "Tasks for updating SEPA %1 mandates have been added to a queue for background execution",
+        [ 1 => $mode, 'domain' => 'org.project60.sepa' ],
+        'info'
+      ));
+
+      CRM_Utils_System::redirect('/civicrm/sepa/dashboard');
     }
 
     if ($mode=="OOFF") {

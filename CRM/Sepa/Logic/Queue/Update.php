@@ -98,10 +98,11 @@ class CRM_Sepa_Logic_Queue_Update {
 
     // Create a queue
     $queue_sequential = Civi::queue('sdd_update_sequential', [
-      'error'  => 'abort',
-      'reset'  => TRUE,
-      'runner' => 'task',
-      'type'   => 'Sql',
+      'error'      => 'abort',
+      'lease_time' => 60 * 60 * 24, // 24 hours
+      'reset'      => TRUE,
+      'runner'     => 'task',
+      'type'       => 'Sql',
     ]);
 
     // Check whether background queues are enabled
