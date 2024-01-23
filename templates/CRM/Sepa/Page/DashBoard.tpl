@@ -13,6 +13,12 @@
 | written permission from the original author(s).        |
 +-------------------------------------------------------*}
 
+{if $batching_in_progress}
+  <div class="status">
+    {ts domain="org.project60.sepa"}Update of SEPA mandates in progress{/ts}
+  </div>
+{/if}
+
 <div class="crm-actions-ribbon">
   <ul id="actions">
   {if $status eq 'closed'}
