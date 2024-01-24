@@ -94,7 +94,8 @@ class CRM_Sepa_Logic_Batching {
       WHERE mandate.type = 'RCUR'
         AND mandate.status = '{$mode}'
         AND mandate.creditor_id = {$creditor_id}
-        {$batch_clause};";
+      ORDER BY mandate.id ASC
+      {$batch_clause};";
     $results = CRM_Core_DAO::executeQuery($sql_query);
     $relevant_mandates = array();
     while ($results->fetch()) {
@@ -295,7 +296,8 @@ class CRM_Sepa_Logic_Batching {
         AND mandate.type = 'OOFF'
         AND mandate.status = 'OOFF'
         AND mandate.creditor_id = $creditor_id
-        {$batch_clause};";
+      ORDER BY mandate.id ASC
+      {$batch_clause};";
     $results = CRM_Core_DAO::executeQuery($sql_query);
     $relevant_mandates = array();
     while ($results->fetch()) {
