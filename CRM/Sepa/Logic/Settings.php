@@ -204,11 +204,12 @@ class CRM_Sepa_Logic_Settings {
    * the lock is needed so that only one relevant process can access the
    * SEPA data structures at a time
    *
+   * @param string $range Limit DB lock to mandates within a specified range
    * @return CRM_Utils_SepaSafeLock object, or NULL if acquisition timed out
    */
-  static function getLock() {
+  static function getLock($range = "") {
     $timeout = CRM_Sepa_Logic_Settings::getSetting('batching.UPDATE.lock.timeout');
-    return CRM_Utils_SepaSafeLock::acquireLock('org.project60.sepa.batching.update', $timeout);
+    return CRM_Utils_SepaSafeLock::acquireLock("org.project60.sepa.batching.update$range", $timeout);
   }
 
 

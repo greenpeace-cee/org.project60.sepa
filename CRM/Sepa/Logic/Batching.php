@@ -30,7 +30,8 @@ class CRM_Sepa_Logic_Batching {
    */
   static function updateRCUR($creditor_id, $mode, $now = 'now', $offset=NULL, $limit=NULL) {
     // check lock
-    $lock = CRM_Sepa_Logic_Settings::getLock();
+    $range = isset($offset) && isset($limit) ? "$offset-$limit" : "";
+    $lock = CRM_Sepa_Logic_Settings::getLock($range);
     if (empty($lock)) {
       return "Batching in progress. Please try again later.";
     }
@@ -267,7 +268,8 @@ class CRM_Sepa_Logic_Batching {
    */
   static function updateOOFF($creditor_id, $now = 'now', $offset=NULL, $limit=NULL) {
     // check lock
-    $lock = CRM_Sepa_Logic_Settings::getLock();
+    $range = isset($offset) && isset($limit) ? "$offset-$limit" : "";
+    $lock = CRM_Sepa_Logic_Settings::getLock($range);
     if (empty($lock)) {
       return "Batching in progress. Please try again later.";
     }

@@ -158,7 +158,7 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
         'info'
       ));
 
-      CRM_Utils_System::redirect('/civicrm/sepa/dashboard');
+      CRM_Utils_System::redirect(CRM_Utils_System::url('civicrm/sepa/dashboard'));
     }
 
     if ($mode=="OOFF") {
