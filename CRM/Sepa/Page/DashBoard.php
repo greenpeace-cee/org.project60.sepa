@@ -66,14 +66,20 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
 
     // generate status value list
     $status_2_title = array();
-    $status_list = array(
-      'open' => array(
-            CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Open'),
-            CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Reopened')),
-      'closed' => array(
-            CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Closed'),
-            CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Exported'),
-            CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Received')));
+
+    $status_list = [
+      'open' => [
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Open'),
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Reopened'),
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Data Entry'),
+      ],
+      'closed' => [
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Closed'),
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Exported'),
+        CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Received'),
+      ],
+    ];
+
     foreach ($status_list as $title => $values) {
       foreach ($values as $value) {
         if (empty($value)) {    // delete empty values (i.e. batch_status doesn't exist)
@@ -104,6 +110,13 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
       CRM_Core_Session::setStatus(sprintf(ts("Couldn't read transaction groups. Error was: '%s'", array('domain' => 'org.project60.sepa')), $result['error_message']), ts('Error', array('domain' => 'org.project60.sepa')), 'error');
     } else {
       $groups = array();
+
+      $data_entry_status_id = CRM_Core_PseudoConstant::getKey(
+        'CRM_Batch_BAO_Batch',
+        'status_id',
+        'Data Entry'
+      );
+
       foreach ($result["values"] as $id => $group) {
         // 'beautify'
         $group['latest_submission_date'] = date('Y-m-d', strtotime($group['latest_submission_date']));
@@ -114,6 +127,8 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
         $remaining_days = (strtotime($group['latest_submission_date']) - strtotime("now")) / (60*60*24);
         if ($group['status']=='closed') {
           $group['submit'] = 'closed';
+        } elseif ($group['status_id'] == $data_entry_status_id) {
+          $group['submit'] = 'data_entry';
         } elseif ($group['type'] == 'OOFF') {
           $group['submit'] = 'soon';
         } else {

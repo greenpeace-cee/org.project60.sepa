@@ -156,6 +156,10 @@
     <td>{ts domain="org.project60.sepa"}Upcoming{/ts}</td>
     <td>{ts domain="org.project60.sepa"}Submission date more than 6 days from now{/ts}</td>
   </tr>
+  <tr class="submit_data_entry">
+    <td>{ts domain="org.project60.sepa"}Data Entry{/ts}</td>
+    <td>{ts domain="org.project60.sepa"}The group is currently being processed{/ts}</td>
+  </tr>
   <tr class="submit_closed">
     <td>{ts domain="org.project60.sepa"}Closed{/ts}</td>
     <td>{ts domain="org.project60.sepa"}The group is closed and uploaded to creditor, submission date is in the past.{/ts}</td>
@@ -168,6 +172,7 @@
   tr.submit_urgently {background-color: #AC6700AA;}
   tr.submit_soon {background-color: #0165FFAA;}
   tr.submit_later {background-color: #008300AA;}
+  tr.submit_data_entry {background-color: #FFFF00AA;}
   tr.submit_closed {background-color: #00830033;}
 </style>
 {/literal}
