@@ -108,7 +108,7 @@
     <td>
       <a href="{crmURL p="civicrm/sepa/listgroup" q="group_id=$group_id"}" class="button button_view">{ts domain="org.project60.sepa"}Contributions{/ts}</a>
       {if $group.status == 'open'}
-        {if $can_batch}
+        {if $can_batch && $data_entry_status_id != $group.status_id}
           {if $group.submit == 'missed'}
             <a href="{crmURL p="civicrm/sepa/closegroup" q="group_id=$group_id&status=missed"}" class="button button_close">
           {else}

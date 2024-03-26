@@ -98,6 +98,7 @@ class CRM_Sepa_Page_DashBoard extends CRM_Core_Page {
       $status2label[$status_value['value']] = $status_value['label'];
     }
     $this->assign('closed_status_id', CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Closed'));
+    $this->assign('data_entry_status_id', CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Data Entry'));
 
     // now read the details
     $result = civicrm_api("SepaTransactionGroup", "getdetail", array(
