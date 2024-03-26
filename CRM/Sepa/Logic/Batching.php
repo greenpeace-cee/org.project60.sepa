@@ -335,6 +335,7 @@ class CRM_Sepa_Logic_Batching {
     }
     if (!$latest_collection_date) {
       // nothing to do...
+      $lock->release();
       return array();
     }
 
