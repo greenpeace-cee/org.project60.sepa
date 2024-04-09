@@ -456,6 +456,7 @@ class CRM_Sepa_Logic_Batching {
    */
   protected static function syncGroups($calculated_groups, $existing_groups, $mode, $type, $notice, $creditor_id, $partial_groups=FALSE, $partial_first=FALSE) {
     $group_status_id_open = (int) CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Open');
+    $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
 
     foreach ($calculated_groups as $collection_date => $mandates) {
       // check if we need to defer the collection date (e.g. due to bank holidays)
@@ -529,7 +530,7 @@ class CRM_Sepa_Logic_Batching {
 
       // remove all the unwanted entries from our group
       $entity_ids_list = implode(',', $entity_ids);
-      if (!$partial_groups || $partial_first) {
+      if ((!$partial_groups || $partial_first) && !$bgqueue_enabled) {
         CRM_Core_DAO::executeQuery("DELETE FROM civicrm_sdd_contribution_txgroup WHERE txgroup_id=$group_id AND contribution_id NOT IN ($entity_ids_list);");
       }
 

@@ -14,6 +14,8 @@
 | written permission from the original author(s).        |
 +--------------------------------------------------------*/
 
+use Civi\Api4;
+
 define('SDD_UPDATE_RUNNER_BATCH_SIZE', 250);
 define('SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT', 600);
 
@@ -77,6 +79,30 @@ class CRM_Sepa_Logic_Queue_Update {
    * @return void
    */
   public static function launchUpdateRunner($mode) {
+    $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
+    $group_status_id_open = (int) CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Open');
+
+    $txgroup_count = Api4\SepaTransactionGroup::get(FALSE)
+      ->selectRowCount()
+      ->addWhere('type', 'IN', $mode === 'OOFF' ? ['OOFF'] : ['FRST', 'RCUR'])
+      ->addWhere('status_id', '=', $group_status_id_open)
+      ->execute()
+      ->rowCount;
+
+    if ($bgqueue_enabled && $txgroup_count > 0) {
+      CRM_Core_Session::setStatus(
+        ts(
+          "There are existing $mode transaction groups. Delete them before batching!",
+          [ 'domain' => 'org.project60.sepa' ]
+        ),
+        ts('Error'),
+        'error'
+      );
+
+      $redirect_url = CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active');
+      CRM_Utils_System::redirect($redirect_url);
+    }
+
     $sdd_async_update_lock = CRM_Sepa_Logic_Settings::acquireAsyncLock(
       'sdd_async_update_lock',
       SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT
@@ -104,9 +130,6 @@ class CRM_Sepa_Logic_Queue_Update {
       'runner'     => 'task',
       'type'       => 'Sql',
     ]);
-
-    // Check whether background queues are enabled
-    $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
 
     // Close outdated groups
     $queue_sequential->createItem(self::createTask('PREPARE'));
