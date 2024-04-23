@@ -391,6 +391,7 @@ class CRM_Sepa_Logic_Queue_Close {
    */
   private static function taskTitle($mode, $params = []) {
     $counter = $params['counter'] ?? NULL;
+    $target_status_id = $params['target_status_id'] ?? NULL;
     $txgroup_ref = $params['txgroup']['reference'] ?? NULL;
 
     switch ($mode) {
@@ -402,8 +403,9 @@ class CRM_Sepa_Logic_Queue_Close {
         ]);
 
       case 'set_group_status':
-        return ts("Updating status of group '%1'", [
+        return ts("Updating status of group '%1' (Status ID: %2)", [
           1        => $txgroup_ref,
+          2        => $target_status_id,
           'domain' => 'org.project60.sepa',
         ]);
 
