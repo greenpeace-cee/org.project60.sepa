@@ -391,7 +391,7 @@ class CRM_Sepa_Logic_Queue_Close {
    */
   private static function taskTitle($mode, $params = []) {
     $counter = $params['counter'] ?? NULL;
-    $txgroup_ref = $params['txgroup_ref'] ?? NULL;
+    $txgroup_ref = $params['txgroup']['reference'] ?? NULL;
 
     switch ($mode) {
       case 'update_contribution':
