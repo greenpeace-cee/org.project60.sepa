@@ -53,7 +53,7 @@ class CRM_Sepa_Logic_Queue_Close {
       'error'  => 'abort',
       'reset'  => TRUE,
       'runner' => 'task',
-      'type'   => 'SqlParallel',
+      'type'   => 'Sql',
     ]);
 
     // Fetch the groups
