@@ -51,7 +51,7 @@ class CRM_Sepa_Logic_Queue_Close {
     // Create a queue
     $queue = Civi::queue('sdd_close', [
       'error'  => 'abort',
-      'reset'  => TRUE,
+      'reset'  => FALSE,
       'runner' => 'task',
       'type'   => 'Sql',
     ]);
