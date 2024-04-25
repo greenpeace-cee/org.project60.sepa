@@ -284,7 +284,7 @@ class CRM_Sepa_Logic_Queue_Close {
     if (empty($contributions)) return;
 
     // Update the contribution status
-    self::updateContributionStatus($contributions);
+    self::updateContributionStatus($contributions, $txgroup, $target_status_id);
 
     // Update the mandate status
     if ($txgroup['type'] == 'OOFF') {
