@@ -13,6 +13,12 @@
 | written permission from the original author(s).        |
 +-------------------------------------------------------*}
 
+{if $batching_in_progress}
+  <div class="status">
+    {ts domain="org.project60.sepa"}Update of SEPA mandates in progress{/ts}
+  </div>
+{/if}
+
 <div class="crm-actions-ribbon">
   <ul id="actions">
   {if $status eq 'closed'}
@@ -102,7 +108,7 @@
     <td>
       <a href="{crmURL p="civicrm/sepa/listgroup" q="group_id=$group_id"}" class="button button_view">{ts domain="org.project60.sepa"}Contributions{/ts}</a>
       {if $group.status == 'open'}
-        {if $can_batch}
+        {if $can_batch && $data_entry_status_id != $group.status_id}
           {if $group.submit == 'missed'}
             <a href="{crmURL p="civicrm/sepa/closegroup" q="group_id=$group_id&status=missed"}" class="button button_close">
           {else}
@@ -150,6 +156,10 @@
     <td>{ts domain="org.project60.sepa"}Upcoming{/ts}</td>
     <td>{ts domain="org.project60.sepa"}Submission date more than 6 days from now{/ts}</td>
   </tr>
+  <tr class="submit_data_entry">
+    <td>{ts domain="org.project60.sepa"}Data Entry{/ts}</td>
+    <td>{ts domain="org.project60.sepa"}The group is currently being processed{/ts}</td>
+  </tr>
   <tr class="submit_closed">
     <td>{ts domain="org.project60.sepa"}Closed{/ts}</td>
     <td>{ts domain="org.project60.sepa"}The group is closed and uploaded to creditor, submission date is in the past.{/ts}</td>
@@ -162,6 +172,7 @@
   tr.submit_urgently {background-color: #AC6700AA;}
   tr.submit_soon {background-color: #0165FFAA;}
   tr.submit_later {background-color: #008300AA;}
+  tr.submit_data_entry {background-color: #FFFF00AA;}
   tr.submit_closed {background-color: #00830033;}
 </style>
 {/literal}

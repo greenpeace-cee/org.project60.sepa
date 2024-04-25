@@ -14,147 +14,40 @@
 | written permission from the original author(s).        |
 +--------------------------------------------------------*/
 
+use Civi\Api4;
+
 define('SDD_UPDATE_RUNNER_BATCH_SIZE', 250);
 define('SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT', 600);
-
 
 /**
  * Queue Item for updating a sepa group
  */
 class CRM_Sepa_Logic_Queue_Update {
 
-  public $title          = NULL;
-  protected $cmd         = NULL;
-  protected $mode        = NULL;
-  protected $creditor_id = NULL;
-  protected $offset      = NULL;
-  protected $limit       = NULL;
-
   /**
-   * Use CRM_Queue_Runner to do the SDD group update
-   * This doesn't return, but redirects to the runner
+   * Create a task for the queue
+   *
+   * @param $cmd string
+   * @param $params array
+   * @return CRM_Queue_Task
    */
-  public static function launchUpdateRunner($mode) {
-    if (!CRM_Sepa_Logic_Settings::acquireAsyncLock('sdd_async_update_lock', SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT)) {
-      CRM_Core_Session::setStatus(ts("Cannot run update, another update is in progress!", array('domain' => 'org.project60.sepa')), ts('Error'), 'error');
-      $redirect_url = CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active');
-      CRM_Utils_System::redirect($redirect_url);
-      return; // shouldn't be necessary
-    }
-    // create a queue
-    $queue = CRM_Queue_Service::singleton()->create(array(
-      'type'  => 'Sql',
-      'name'  => 'sdd_update',
-      'reset' => TRUE,
-    ));
+  private static function createTask($cmd, $params = []) {
+    $task = new CRM_Queue_Task(
+      ['CRM_Sepa_Logic_Queue_Update', 'run'],
+      [$cmd, $params],
+      self::taskTitle($cmd, $params)
+    );
 
-    // first thing: close outdated groups
-    $queue->createItem(new CRM_Sepa_Logic_Queue_Update('PREPARE', $mode));
-    $queue->createItem(new CRM_Sepa_Logic_Queue_Update('CLOSE', $mode));
+    $task->runAs = [
+      'contactId' => CRM_Core_Session::getLoggedInContactID(),
+      'domainId'  => 1,
+    ];
 
-    // then iterate through all creditors
-    $creditors = civicrm_api3('SepaCreditor', 'get', array('option.limit' => 0));
-    foreach ($creditors['values'] as $creditor) {
-      $sdd_modes = ($mode=='RCUR') ? array('FRST','RCUR') : array('OOFF');
-      foreach ($sdd_modes as $sdd_mode) {
-        $count = self::getMandateCount($creditor['id'], $sdd_mode) + SDD_UPDATE_RUNNER_BATCH_SIZE; // safety margin
-        for ($offset=0; $offset < $count; $offset+=SDD_UPDATE_RUNNER_BATCH_SIZE) {
-          // add an item for each batch
-          $queue->createItem(new CRM_Sepa_Logic_Queue_Update('UPDATE', $sdd_mode, $creditor['id'], $offset, SDD_UPDATE_RUNNER_BATCH_SIZE));
-        }
-        $queue->createItem(new CRM_Sepa_Logic_Queue_Update('CLEANUP', $sdd_mode));
-      }
-    }
-
-    $queue->createItem(new CRM_Sepa_Logic_Queue_Update('FINISH', $mode));
-
-    // create a runner and launch it
-    $runner = new CRM_Queue_Runner(array(
-      'title'     => ts("Updating %1 SEPA Groups", array(1 => $mode, 'domain' => 'org.project60.sepa')),
-      'queue'     => $queue,
-      'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
-      // 'onEnd'     => array('CRM_Admin_Page_ExtensionsUpgrade', 'onEnd'),
-      'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active'),
-    ));
-    $runner->runAllViaWeb(); // does not return
+    return $task;
   }
-
-
-  protected function __construct($cmd, $mode, $creditor_id = NULL, $offset = NULL, $limit = NULL) {
-    $this->cmd         = $cmd;
-    $this->mode        = $mode;
-    $this->creditor_id = $creditor_id;
-    $this->offset      = $offset;
-    $this->limit       = $limit;
-
-    // set title
-    switch ($this->cmd) {
-      case 'PREPARE':
-        $this->title = ts("Preparing to clean up ended mandates", array('domain' => 'org.project60.sepa'));
-        break;
-
-      case 'CLOSE':
-        $this->title = ts("Cleaning up ended mandates", array('domain' => 'org.project60.sepa'));
-        break;
-
-      case 'UPDATE':
-        $this->title = ts("Process {$this->mode} mandates (%1-%2)",
-          array(1 => $this->offset, 2 => $this->offset+$this->limit, 'domain' => 'org.project60.sepa'));
-        break;
-
-      case 'CLEANUP':
-        $this->title = ts("Cleaning up {$this->mode} groups",
-          array(1 => $this->offset, 2 => $this->offset+$this->limit, 'domain' => 'org.project60.sepa'));
-        break;
-
-      case 'FINISH':
-        $this->title = ts("Lock released", array('domain' => 'org.project60.sepa'));
-        break;
-
-      default:
-        $this->title = "Unknown";
-      }
-  }
-
-  public function run($context) {
-    switch ($this->cmd) {
-      case 'PREPARE':
-        // nothing to do
-        break;
-
-      case 'CLOSE':
-        CRM_Sepa_Logic_Batching::closeEnded();
-        CRM_Sepa_Logic_Settings::renewAsyncLock('sdd_async_update_lock', SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT);
-        break;
-
-      case 'UPDATE':
-        if ($this->mode == 'OOFF') {
-          CRM_Sepa_Logic_Batching::updateOOFF($this->creditor_id, 'now', $this->offset, $this->limit);
-        } else {
-          CRM_Sepa_Logic_Batching::updateRCUR($this->creditor_id, $this->mode, 'now', $this->offset, $this->limit);
-        }
-        CRM_Sepa_Logic_Settings::renewAsyncLock('sdd_async_update_lock', SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT);
-        break;
-
-      case 'CLEANUP':
-        CRM_Sepa_Logic_Group::cleanup($this->mode);
-        break;
-
-      case 'FINISH':
-        CRM_Sepa_Logic_Settings::releaseAsyncLock('sdd_async_update_lock');
-        break;
-
-      default:
-        return FALSE;
-    }
-
-    return TRUE;
-  }
-
-
 
   /**
-   * determine the count of mandates to be investigated
+   * Determine the count of mandates to be investigated
    */
   protected static function getMandateCount($creditor_id, $sdd_mode) {
     if ($sdd_mode == 'OOFF') {
@@ -178,6 +71,256 @@ class CRM_Sepa_Logic_Queue_Update {
           AND mandate.creditor_id = $creditor_id;");
     }
   }
+
+  /**
+   * Use Civi::queue to do the SDD group update
+   *
+   * @param $mode string
+   * @return void
+   */
+  public static function launchUpdateRunner($mode) {
+    $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
+    $group_status_id_open = (int) CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Open');
+
+    $txgroup_count = Api4\SepaTransactionGroup::get(FALSE)
+      ->selectRowCount()
+      ->addWhere('type', 'IN', $mode === 'OOFF' ? ['OOFF'] : ['FRST', 'RCUR'])
+      ->addWhere('status_id', '=', $group_status_id_open)
+      ->execute()
+      ->rowCount;
+
+    if ($bgqueue_enabled && $txgroup_count > 0) {
+      CRM_Core_Session::setStatus(
+        ts(
+          "There are existing $mode transaction groups. Delete them before batching!",
+          [ 'domain' => 'org.project60.sepa' ]
+        ),
+        ts('Error'),
+        'error'
+      );
+
+      $redirect_url = CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active');
+      CRM_Utils_System::redirect($redirect_url);
+    }
+
+    $sdd_async_update_lock = CRM_Sepa_Logic_Settings::acquireAsyncLock(
+      'sdd_async_update_lock',
+      SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT
+    );
+
+    if (!$sdd_async_update_lock) {
+      CRM_Core_Session::setStatus(
+        ts('Cannot run update, another update is in progress!', ['domain' => 'org.project60.sepa']),
+        ts('Error'),
+        'error'
+      );
+
+      $redirect_url = CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active');
+      CRM_Utils_System::redirect($redirect_url);
+
+      // Shouldn't be necessary
+      return;
+    }
+
+    // Create a queue
+    $queue_sequential = Civi::queue('sdd_update_sequential', [
+      'error'      => 'abort',
+      'lease_time' => 60 * 60 * 24, // 24 hours
+      'reset'      => TRUE,
+      'runner'     => 'task',
+      'type'       => 'Sql',
+    ]);
+
+    // Close outdated groups
+    $queue_sequential->createItem(self::createTask('PREPARE'));
+    $queue_sequential->createItem(self::createTask('CLOSE'));
+
+    // Then iterate through all creditors
+    $creditors = civicrm_api3('SepaCreditor', 'get', [ 'option.limit' => 0 ]);
+
+    foreach ($creditors['values'] as $creditor) {
+      $sdd_modes = ($mode == 'RCUR') ? ['FRST', 'RCUR'] : ['OOFF'];
+
+      foreach ($sdd_modes as $sdd_mode) {
+        // Safety margin
+        $count = self::getMandateCount($creditor['id'], $sdd_mode) + SDD_UPDATE_RUNNER_BATCH_SIZE;
+
+        if ($bgqueue_enabled) {
+          $queue_sequential->createItem(self::createTask('UPDATE_ALL', [
+            'count'       => $count,
+            'creditor_id' => $creditor['id'],
+            'mode'        => $sdd_mode,
+          ]));
+        } else {
+          for ($offset=0; $offset < $count; $offset += SDD_UPDATE_RUNNER_BATCH_SIZE) {
+            $queue_sequential->createItem(self::createTask('UPDATE', [
+              'creditor_id' => $creditor['id'],
+              'mode'        => $sdd_mode,
+              'offset'      => $offset,
+            ]));
+          }
+        }
+
+        $queue_sequential->createItem(self::createTask('CLEANUP', [ 'mode' => $sdd_mode ]));
+      }
+    }
+
+    $queue_sequential->createItem(self::createTask('FINISH'));
+
+    if (!$bgqueue_enabled) {
+      $runner_title = ts('Updating %1 SEPA Groups', [
+        1        => $mode,
+        'domain' => 'org.project60.sepa',
+      ]);
+
+      $runner = new CRM_Queue_Runner([
+        'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
+        'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=active'),
+        'queue'     => $queue_sequential,
+        'title'     => $runner_title,
+      ]);
+
+      $runner->runAllViaWeb();
+    }
+  }
+
+  /**
+   * Execute a task
+   *
+   * @param $_ctx CRM_Queue_TaskContext
+   * @param $cmd string
+   * @param $params array
+   * @return bool
+   */
+  public static function run($_ctx, $cmd, $params) {
+    $_ctx->queue->setStatus('active');
+
+    $count = $params['count'] ?? 0;
+    $creditor_id = $params['creditor_id'] ?? NULL;
+    $limit = SDD_UPDATE_RUNNER_BATCH_SIZE;
+    $mode = $params['mode'] ?? NULL;
+    $offset = $params['offset'] ?? NULL;
+
+    switch ($cmd) {
+      case 'PREPARE': {
+        // nothing to do
+        break;
+      }
+
+      case 'CLOSE': {
+        CRM_Sepa_Logic_Batching::closeEnded();
+
+        CRM_Sepa_Logic_Settings::renewAsyncLock(
+          'sdd_async_update_lock',
+          SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT
+        );
+
+        break;
+      }
+
+      case 'UPDATE': {
+        if ($mode == 'OOFF') {
+          CRM_Sepa_Logic_Batching::updateOOFF($creditor_id, 'now', $offset, $limit);
+        } else {
+          CRM_Sepa_Logic_Batching::updateRCUR($creditor_id, $mode, 'now', $offset, $limit);
+        }
+
+        CRM_Sepa_Logic_Settings::renewAsyncLock(
+          'sdd_async_update_lock',
+          SDD_UPDATE_RUNNER_BATCH_LOCK_TIMOUT
+        );
+
+        break;
+      }
+
+      case 'UPDATE_ALL': {
+        $queue_parallel = Civi::queue('sdd_update_parallel', [
+          'error'  => 'abort',
+          'reset'  => TRUE,
+          'runner' => 'task',
+          'type'   => 'SqlParallel',
+        ]);
+
+        for ($offset=0; $offset < $count; $offset += SDD_UPDATE_RUNNER_BATCH_SIZE) {
+          $queue_parallel->createItem(self::createTask('UPDATE', [
+            'creditor_id' => $creditor_id,
+            'mode'        => $mode,
+            'offset'      => $offset,
+          ]));
+        }
+
+        do {
+          sleep(5);
+
+          $task_count = (int) CRM_Core_DAO::singleValueQuery("
+            SELECT count(*) FROM civicrm_queue_item WHERE queue_name = 'sdd_update_parallel'
+          ");
+        } while ($task_count > 0);
+
+        break;
+      }
+
+      case 'CLEANUP': {
+        CRM_Sepa_Logic_Group::cleanup($mode);
+        break;
+      }
+
+      case 'FINISH': {
+        CRM_Sepa_Logic_Settings::releaseAsyncLock('sdd_async_update_lock');
+        break;
+      }
+
+      default: {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Render a title for a task
+   *
+   * @param $cmd string
+   * @param $params array
+   * @return string
+   */
+  private static function taskTitle($cmd, $params) {
+    $creditor_id = $params['creditor_id'] ?? NULL;
+    $mode = $params['mode'] ?? '[unknown]';
+    $offset = $params['offset'] ?? 0;
+
+    switch ($cmd) {
+      case 'CLEANUP':
+        return ts("Cleaning up $mode groups", [ 'domain' => 'org.project60.sepa' ]);
+
+      case 'CLOSE':
+        return ts('Cleaning up ended mandates', [ 'domain' => 'org.project60.sepa' ]);
+
+      case 'FINISH':
+        return ts('Lock released', [ 'domain' => 'org.project60.sepa' ]);
+
+      case 'PREPARE':
+        return ts('Preparing to clean up ended mandates', [ 'domain' => 'org.project60.sepa' ]);
+
+      case 'UPDATE':
+        return ts("Process $mode mandates (%1-%2)", [
+          1 => $offset,
+          2 => $offset + SDD_UPDATE_RUNNER_BATCH_SIZE,
+          'domain' => 'org.project60.sepa',
+        ]);
+
+      case 'UPDATE_ALL':
+        return ts("Process all $mode mandates in parallel (Creditor ID: %1)", [
+          1 => $creditor_id,
+          'domain' => 'org.project60.sepa',
+        ]);
+
+      default:
+        return ts('Unknown', [ 'domain' => 'org.project60.sepa' ]);
+    }
+  }
+
 }
 
 

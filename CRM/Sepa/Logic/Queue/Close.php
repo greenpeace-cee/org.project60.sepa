@@ -22,124 +22,164 @@ define('SDD_CLOSE_RUNNER_BATCH_SIZE', 250);
  */
 class CRM_Sepa_Logic_Queue_Close {
 
-  public $title               = NULL;
-  protected $txgroup          = NULL;
-  protected $target_status_id = NULL;
-  protected $group_name       = NULL;
-  protected $counter          = NULL;
+  /**
+   * Create a task for the queue
+   *
+   * @param $mode string
+   * @param $params array
+   * @return CRM_Queue_Task
+   */
+  private static function createTask($mode, $params = []) {
+    $task = new CRM_Queue_Task(
+      ['CRM_Sepa_Logic_Queue_Close', 'run'],
+      [$mode, $params],
+      self::taskTitle($mode, $params)
+    );
+
+    $task->runAs = [
+      'contactId' => CRM_Core_Session::getLoggedInContactID(),
+      'domainId'  => 1,
+    ];
+
+    return $task;
+  }
 
   /**
-   * Use CRM_Queue_Runner to close a SDD group
-   * This doesn't return, but redirects to the runner
+   * Use Civi::queue to close a SDD group
    */
   public static function launchCloseRunner($txgroup_ids, $target_group_status, $target_contribution_status) {
-    // create a queue
-    $queue = CRM_Queue_Service::singleton()->create(array(
-      'type'  => 'Sql',
-      'name'  => 'sdd_close',
-      'reset' => TRUE,
-    ));
+    // Create a queue
+    $queue = Civi::queue('sdd_close', [
+      'error'  => 'abort',
+      'reset'  => FALSE,
+      'runner' => 'task',
+      'type'   => 'Sql',
+    ]);
 
-    // fetch the groups
-    $txgroup_query = civicrm_api3('SepaTransactionGroup', 'get', array(
-      'id'           => array('IN' => $txgroup_ids),
-      'option.limit' => 0
-      ));
+    // Fetch the groups
+    $txgroup_query = civicrm_api3('SepaTransactionGroup', 'get', [
+      'id'           => [ 'IN' => $txgroup_ids ],
+      'option.limit' => 0,
+    ]);
 
-    $group_status_id_busy = (int) CRM_Core_PseudoConstant::getKey('CRM_Batch_BAO_Batch', 'status_id', 'Data Entry');
+    $group_status_id_busy = (int) CRM_Core_PseudoConstant::getKey(
+      'CRM_Batch_BAO_Batch',
+      'status_id',
+      'Data Entry'
+    );
 
     foreach ($txgroup_query['values'] as $txgroup) {
-      // first: set group status to busy
+      $txgroup_id = $txgroup['id'];
 
-      $queue->createItem(new CRM_Sepa_Logic_Queue_Close('set_group_status', $txgroup, $group_status_id_busy));
+      // Set group status to busy
+      $queue->createItem(self::createTask('set_group_status', [
+        'target_status_id' => $group_status_id_busy,
+        'txgroup'          => $txgroup,
+      ]));
 
-      // count the contributions and create an appropriate amount of items
-      $contribution_count = CRM_Core_DAO::singleValueQuery("SELECT COUNT(contribution_id) FROM civicrm_sdd_contribution_txgroup WHERE txgroup_id={$txgroup['id']}");
-      $contribution_count += SDD_CLOSE_RUNNER_BATCH_SIZE; // security margin
-      for ($offset=0; $offset <= $contribution_count; $offset+=SDD_CLOSE_RUNNER_BATCH_SIZE) {
-        $queue->createItem(new CRM_Sepa_Logic_Queue_Close('update_contribution', $txgroup, $target_contribution_status, $offset));
+      // Count the contributions and create an appropriate amount of items
+      $contribution_count = CRM_Core_DAO::singleValueQuery("
+        SELECT COUNT(contribution_id) FROM civicrm_sdd_contribution_txgroup
+        WHERE txgroup_id = $txgroup_id
+      ");
+
+      // Security margin
+      $contribution_count += SDD_CLOSE_RUNNER_BATCH_SIZE;
+
+      for ($offset = 0; $offset <= $contribution_count; $offset += SDD_CLOSE_RUNNER_BATCH_SIZE) {
+        $queue->createItem(self::createTask('update_contribution', [
+          'counter'          => $offset,
+          'target_status_id' => $target_contribution_status,
+          'txgroup'          => $txgroup,
+        ]));
       }
 
-      // finally: render XML and mark the group
-      $queue->createItem(new CRM_Sepa_Logic_Queue_Close('create_xml', $txgroup, $target_group_status));
-      $queue->createItem(new CRM_Sepa_Logic_Queue_Close('set_group_status', $txgroup, $target_group_status));
-    }
+      // Render XML and mark the group
+      $queue->createItem(self::createTask('create_xml', [
+        'target_status_id' => $target_group_status,
+        'txgroup'          => $txgroup,
+      ]));
 
-    // create a runner and launch it
-    $runner = new CRM_Queue_Runner(array(
-      'title'     => ts("Closing SDD Group(s) [%1]", array(1 => implode(',', $txgroup_ids), 'domain' => 'org.project60.sepa')),
-      'queue'     => $queue,
-      'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
-      // 'onEnd'     => array('CRM_Admin_Page_ExtensionsUpgrade', 'onEnd'),
-      'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=closed'),
-    ));
-    $runner->runAllViaWeb(); // does not return
-  }
+      $queue->createItem(self::createTask('set_group_status', [
+        'target_status_id' => $target_group_status,
+        'txgroup'          => $txgroup,
+      ]));
 
+      $bgqueue_enabled = (bool) Civi::settings()->get('enableBackgroundQueue');
 
-  protected function __construct($mode, $txgroup, $target_status_id, $counter = NULL) {
-    $this->mode             = $mode;
-    $this->txgroup          = $txgroup;
-    $this->target_status_id = $target_status_id;
-    $this->counter          = $counter;
+      if (!$bgqueue_enabled) {
+        $runner_title = ts('Closing SDD Group(s) [%1]', [
+          1        => implode(',', $txgroup_ids),
+          'domain' => 'org.project60.sepa',
+        ]);
 
-    // set title
-    switch ($this->mode) {
-      case 'update_contribution':
-        $this->title = ts("Updating contributions in group '%1'... (%2)", array(
-          1 => $txgroup['reference'], 2 => $counter, 'domain' => 'org.project60.sepa'));
-        break;
+        $runner = new CRM_Queue_Runner([
+          'errorMode' => CRM_Queue_Runner::ERROR_ABORT,
+          'onEndUrl'  => CRM_Utils_System::url('civicrm/sepa/dashboard', 'status=closed'),
+          'queue'     => $queue,
+          'title'     => $runner_title,
+        ]);
 
-      case 'set_group_status':
-        $this->title = ts("Updating status of group '%1'", array(
-          1 => $txgroup['reference'], 'domain' => 'org.project60.sepa'));
-        break;
-
-      case 'create_xml':
-        $this->title = ts("Compiling XML for group '%1'", array(
-          1 => $txgroup['reference'], 'domain' => 'org.project60.sepa'));
-        break;
-
-      default:
-        $this->title = "Unknown";
+        $runner->runAllViaWeb();
+      }
     }
   }
 
-  public function run($context) {
-    switch ($this->mode) {
+  /**
+   * Execute a task
+   *
+   * @param $_ctx CRM_Queue_TaskContext
+   * @param $mode string
+   * @param $params array
+   * @return bool
+   */
+  public static function run($_ctx, $mode, $params) {
+    $_ctx->queue->setStatus('active');
+
+    $target_status_id = $params['target_status_id'] ?? NULL;
+    $txgroup = $params['txgroup'] ?? NULL;
+
+    switch ($mode) {
       case 'update_contribution':
-        // this one needs a lock
+        // This one needs a lock
         $exception = NULL;
         $lock = CRM_Sepa_Logic_Settings::getLock();
+
         if (empty($lock)) {
           throw new Exception("Batching in progress. Please try again later.");
         }
+
         try {
-          $this->updateContributions();
+          self::updateContributions($txgroup, $target_status_id);
         } catch (Exception $e) {
-          $exception = $e; // store and throw later
+          // Store and throw later
+          $exception = $e;
         }
+
         $lock->release();
+
         if ($exception) throw $exception;
+
         break;
 
       case 'create_xml':
-        // create the sepa file
-        civicrm_api3('SepaAlternativeBatching', 'createxml', array(
-          'txgroup_id' => $this->txgroup['id'],
-          ));
+        // Create the SEPA file
+        civicrm_api3('SepaAlternativeBatching', 'createxml', [
+          'txgroup_id' => $txgroup['id'],
+        ]);
+
         break;
 
       case 'set_group_status':
-        // simply change the status
-        civicrm_api3('SepaTransactionGroup', 'create', array(
-          'id'        => $this->txgroup['id'],
-          'status_id' => $this->target_status_id,
-          ));
+        // Simply change the status
+        civicrm_api3('SepaTransactionGroup', 'create', [
+          'id'        => $txgroup['id'],
+          'status_id' => $target_status_id,
+        ]);
+
         break;
 
       default:
-        $this->title = "Unknown";
         return FALSE;
     }
 
@@ -147,15 +187,24 @@ class CRM_Sepa_Logic_Queue_Close {
   }
 
   /**
-   * will select the next batch of up to SDD_CLOSE_RUNNER_BATCH_SIZE
+   * Will select the next batch of up to SDD_CLOSE_RUNNER_BATCH_SIZE
    * contributions and update their status
+   *
+   * @param $txgroup array
+   * @param $target_status_id int
+   * @return void
    */
-  protected function updateContributions() {
-    $status_pending    = (int) CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
-    $status_inProgress =  CRM_Sepa_Logic_Settings::contributionInProgressStatusId();
+  protected static function updateContributions($txgroup, $target_status_id) {
+    $status_pending = (int) CRM_Core_PseudoConstant::getKey(
+      'CRM_Contribute_BAO_Contribution',
+      'contribution_status_id',
+      'Pending'
+    );
 
-    // get eligible contributions (slightly different queries for OOFF/RCUR)
-    if ($this->txgroup['type'] == 'OOFF') {
+    $status_in_progress = CRM_Sepa_Logic_Settings::contributionInProgressStatusId();
+
+    // Get eligible contributions (slightly different queries for OOFF/RCUR)
+    if ($txgroup['type'] == 'OOFF') {
       $query = CRM_Core_DAO::executeQuery("
         SELECT
           civicrm_sdd_mandate.id                      AS mandate_id,
@@ -163,20 +212,30 @@ class CRM_Sepa_Logic_Queue_Close {
           civicrm_contribution.id                     AS contribution_id,
           civicrm_contribution.contribution_status_id AS contribution_status_id
         FROM civicrm_sdd_contribution_txgroup
-        LEFT JOIN civicrm_contribution       ON civicrm_contribution.id = civicrm_sdd_contribution_txgroup.contribution_id
-        LEFT JOIN civicrm_sdd_mandate        ON civicrm_sdd_mandate.entity_id = civicrm_contribution.id AND civicrm_sdd_mandate.entity_table = 'civicrm_contribution'
+        LEFT JOIN civicrm_contribution
+          ON civicrm_contribution.id = civicrm_sdd_contribution_txgroup.contribution_id
+        LEFT JOIN civicrm_sdd_mandate
+          ON civicrm_sdd_mandate.entity_id = civicrm_contribution.id
+          AND civicrm_sdd_mandate.entity_table = 'civicrm_contribution'
         WHERE civicrm_sdd_contribution_txgroup.txgroup_id = %1
-          AND (civicrm_contribution.contribution_status_id = %2 OR civicrm_contribution.contribution_status_id = %3)
+          AND (
+            civicrm_contribution.contribution_status_id = %2
+            OR civicrm_contribution.contribution_status_id = %3
+          )
           AND (civicrm_contribution.contribution_status_id <> %4)
-          LIMIT %5", array(
-            1 => array($this->txgroup['id'], 'Integer'),
-            2 => array($status_pending, 'Integer'),
-            3 => array($status_inProgress, 'Integer'),
-            4 => array($this->target_status_id, 'Integer'),
-            5 => array(SDD_CLOSE_RUNNER_BATCH_SIZE, 'Integer'),
-          ));
-
-    } elseif ($this->txgroup['type'] == 'RCUR' || $this->txgroup['type'] == 'FRST' || $this->txgroup['type'] == 'RTRY') {
+        LIMIT %5
+      ", [
+        1 => [$txgroup['id'], 'Integer'],
+        2 => [$status_pending, 'Integer'],
+        3 => [$status_in_progress, 'Integer'],
+        4 => [$target_status_id, 'Integer'],
+        5 => [SDD_CLOSE_RUNNER_BATCH_SIZE, 'Integer'],
+      ]);
+    } elseif (
+      $txgroup['type'] == 'RCUR'
+      || $txgroup['type'] == 'FRST'
+      || $txgroup['type'] == 'RTRY'
+    ) {
       $query = CRM_Core_DAO::executeQuery("
         SELECT
           civicrm_sdd_mandate.id                      AS mandate_id,
@@ -184,123 +243,183 @@ class CRM_Sepa_Logic_Queue_Close {
           civicrm_contribution.id                     AS contribution_id,
           civicrm_contribution.contribution_status_id AS contribution_status_id
         FROM civicrm_sdd_contribution_txgroup
-        LEFT JOIN civicrm_contribution       ON civicrm_contribution.id = civicrm_sdd_contribution_txgroup.contribution_id
-        LEFT JOIN civicrm_contribution_recur ON civicrm_contribution_recur.id = civicrm_contribution.contribution_recur_id
-        LEFT JOIN civicrm_sdd_mandate        ON civicrm_sdd_mandate.entity_id = civicrm_contribution_recur.id AND civicrm_sdd_mandate.entity_table = 'civicrm_contribution_recur'
+        LEFT JOIN civicrm_contribution
+          ON civicrm_contribution.id = civicrm_sdd_contribution_txgroup.contribution_id
+        LEFT JOIN civicrm_contribution_recur
+          ON civicrm_contribution_recur.id = civicrm_contribution.contribution_recur_id
+        LEFT JOIN civicrm_sdd_mandate
+          ON civicrm_sdd_mandate.entity_id = civicrm_contribution_recur.id
+          AND civicrm_sdd_mandate.entity_table = 'civicrm_contribution_recur'
         WHERE civicrm_sdd_contribution_txgroup.txgroup_id = %1
-          AND (civicrm_contribution.contribution_status_id = %2 OR civicrm_contribution.contribution_status_id = %3)
+          AND (
+            civicrm_contribution.contribution_status_id = %2
+            OR civicrm_contribution.contribution_status_id = %3
+          )
           AND (civicrm_contribution.contribution_status_id <> %4)
-          LIMIT %5", array(
-            1 => array($this->txgroup['id'], 'Integer'),
-            2 => array($status_pending, 'Integer'),
-            3 => array($status_inProgress, 'Integer'),
-            4 => array($this->target_status_id, 'Integer'),
-            5 => array(SDD_CLOSE_RUNNER_BATCH_SIZE, 'Integer')));
-
+        LIMIT %5
+      ", [
+        1 => [$txgroup['id'], 'Integer'],
+        2 => [$status_pending, 'Integer'],
+        3 => [$status_in_progress, 'Integer'],
+        4 => [$target_status_id, 'Integer'],
+        5 => [SDD_CLOSE_RUNNER_BATCH_SIZE, 'Integer'],
+      ]);
     } else {
-      throw new Exception("Illegal group type '{$this->txgroup['type']}'", 1);
+      throw new Exception("Illegal group type '{$txgroup['type']}'", 1);
     }
 
-    // collect the data
-    $contributions = array();
+    // Collect the data
+    $contributions = [];
+
     while ($query->fetch()) {
-      $contributions[$query->contribution_id] = array(
+      $contributions[$query->contribution_id] = [
+        'contribution_status_id' => $query->contribution_status_id,
         'id'                     => $query->contribution_id,
         'mandate_id'             => $query->mandate_id,
-        'contribution_status_id' => $query->contribution_status_id,
-        'mandate_status'         => $query->mandate_status);
+        'mandate_status'         => $query->mandate_status,
+      ];
     }
 
-    // if ther's nothing to do, stop right here
+    // If there's nothing to do, stop right here
     if (empty($contributions)) return;
 
-    // now: first update the contribution status
-    $this->updateContributionStatus($contributions);
+    // Update the contribution status
+    self::updateContributionStatus($contributions, $txgroup, $target_status_id);
 
-    // then: update the mandate status
-    if ($this->txgroup['type'] == 'OOFF') {
-      $this->updateMandateStatus($contributions, 'SENT', 'OOFF');
-    } elseif ($this->txgroup['type'] == 'FRST') {
+    // Update the mandate status
+    if ($txgroup['type'] == 'OOFF') {
+      self::updateMandateStatus($contributions, 'SENT', 'OOFF');
+    } elseif ($txgroup['type'] == 'FRST') {
       // TODO: GET $collection_date
-      $this->updateMandateStatus($contributions, 'RCUR', 'FRST');
+      self::updateMandateStatus($contributions, 'RCUR', 'FRST');
     }
 
-    // also update next collection date
-    if ($this->txgroup['type'] == 'FRST' || $this->txgroup['type'] == 'RCUR' || $this->txgroup['type'] == 'RTRY') {
-      CRM_Sepa_Logic_NextCollectionDate::advanceNextCollectionDate(NULL, array_keys($contributions));
+    // Also update next collection date
+    if (
+      $txgroup['type'] == 'FRST'
+      || $txgroup['type'] == 'RCUR'
+      || $txgroup['type'] == 'RTRY'
+    ) {
+      CRM_Sepa_Logic_NextCollectionDate::advanceNextCollectionDate(
+        NULL,
+        array_keys($contributions)
+      );
     }
   }
 
 
   /**
-   * Update the status of all the given contributions'
+   * Update the status of all the given contributions
+   *
+   * @param $contributions array
+   * @param $new_status string
+   * @param $for_old_status string
+   * @return void
    */
-  protected function updateMandateStatus($contributions, $new_status, $for_old_status) {
+  protected static function updateMandateStatus($contributions, $new_status, $for_old_status) {
     foreach ($contributions as $contribution) {
       if ($contribution['mandate_status'] == $for_old_status) {
-        // the mandate has the required status
-        $update = array(
+        // The mandate has the required status
+        $update = [
           'id'     => $contribution['mandate_id'],
-          'status' => $new_status);
+          'status' => $new_status,
+        ];
+
         if ($new_status=='RCUR' && $contribution['mandate_status'] == 'FRST') {
-          // in this case we also want to set the contribution as first
+          // In this case we also want to set the contribution as first
           $update['first_contribution_id'] = $contribution['id'];
         }
+
         civicrm_api3('SepaMandate', 'create', $update);
       }
     }
   }
 
   /**
-   * Update the status of all the given contributions'
-   * @deprecated currently unused in favour of updateMandateStatus
+   * Update the status of all given contributions to $target_status_id
+   *
+   * @param $contributions array
+   * @param $txgroup array
+   * @param $target_status_id int
+   * @return void
    */
-  protected function updateMandateStatusSQL($contributions, $new_status, $for_old_status) {
-    // generate a mandate_id list
-    $mandate_ids = array();
-    foreach ($contributions as $contribution) {
-      $mandate_ids[] = $contribution['mandate_id'];
-    }
-    $mandate_id_list = implode(',', $mandate_ids);
+  protected static function updateContributionStatus($contributions, $txgroup, $target_status_id) {
+    $contribution_id_list = implode(',', array_keys($contributions));
+    $status_in_progress = CRM_Sepa_Logic_Settings::contributionInProgressStatusId();
 
-    // UPDATE via SQL
-    CRM_Core_DAO::executeQuery("
-      UPDATE civicrm_sdd_mandate
-         SET status = '{$new_status}'
-       WHERE status = '{$for_old_status}'
-         AND id IN ({$mandate_id_list}");
+    if (empty($contribution_id_list)) {
+      // This would cause SQL errors
+      return;
+    }
+
+    if ($target_status_id == $status_in_progress) {
+      // This status cannot be set via the API -> use SQL
+      CRM_Core_DAO::executeQuery("
+        UPDATE civicrm_contribution SET contribution_status_id = $status_in_progress
+        WHERE id IN ($contribution_id_list);
+      ");
+    } else {
+      // This should be status 'Completed', but it doesn't really matter
+      // Sanity checks:
+      if (version_compare(CRM_Utils_System::version(), '4.7.0', '>=')) {
+        // Make sure they're all in status 'In Progress' to avoid SEPA-514
+        CRM_Core_DAO::executeQuery("
+          UPDATE civicrm_contribution SET contribution_status_id = $status_in_progress
+          WHERE id IN ($contribution_id_list);
+        ");
+      }
+
+      // Set them all to the new status
+      foreach ($contributions as $contribution) {
+        $receive_date = date('YmdHis', strtotime($txgroup['collection_date']));
+
+        civicrm_api3('Contribution', 'create', [
+          'contribution_status_id' => $target_status_id,
+          'id'                     => $contribution['id'],
+          'receive_date'           => $receive_date,
+        ]);
+      }
+    }
   }
 
   /**
-   * Update the status of all given contributions to $this->target_status_id
+   * Render a title for a task
+   *
+   * @param $mode string
+   * @param $params array
+   * @return string
    */
-  protected function updateContributionStatus($contributions) {
-    $contribution_id_list = implode(',', array_keys($contributions));
-    $status_inProgress =  CRM_Sepa_Logic_Settings::contributionInProgressStatusId();
-    if (empty($contribution_id_list)) {
-      // this would cause SQL errors
-      return;
-    }
-    if ($this->target_status_id == $status_inProgress) {
-      // this status cannot be set via the API -> use SQL
-      CRM_Core_DAO::executeQuery("UPDATE civicrm_contribution SET contribution_status_id={$status_inProgress} WHERE id IN ({$contribution_id_list});");
+  private static function taskTitle($mode, $params = []) {
+    $counter = $params['counter'] ?? NULL;
+    $target_status_id = $params['target_status_id'] ?? NULL;
+    $txgroup_ref = $params['txgroup']['reference'] ?? NULL;
 
-    } else { // this should be status 'Completed', but it doesn't really matter
-      // first, some sanity checks:
-      if (version_compare(CRM_Utils_System::version(), '4.7.0', '>=')) {
-        // make sure they're all in status 'In Progress' to avoid SEPA-514
-        CRM_Core_DAO::executeQuery("UPDATE civicrm_contribution SET contribution_status_id={$status_inProgress} WHERE id IN ({$contribution_id_list});");
-      }
+    switch ($mode) {
+      case 'update_contribution':
+        return ts("Updating contributions in group '%1'... (%2)", [
+          1        => $txgroup_ref,
+          2        => $counter,
+          'domain' => 'org.project60.sepa',
+        ]);
 
-      // then: set them all to the new status
-      foreach ($contributions as $contribution) {
-        civicrm_api3('Contribution', 'create', array(
-            'id'                       => $contribution['id'],
-            'contribution_status_id'   => $this->target_status_id,
-            'receive_date'             => date('YmdHis', strtotime($this->txgroup['collection_date']))));
-      }
+      case 'set_group_status':
+        return ts("Updating status of group '%1' (Status ID: %2)", [
+          1        => $txgroup_ref,
+          2        => $target_status_id,
+          'domain' => 'org.project60.sepa',
+        ]);
+
+      case 'create_xml':
+        return ts("Compiling XML for group '%1'", [
+          1        => $txgroup_ref,
+          'domain' => 'org.project60.sepa',
+        ]);
+
+      default:
+        return ts('Unknown', [ 'domain' => 'org.project60.sepa' ]);
     }
   }
+
 }
 
 
