@@ -97,6 +97,14 @@ class CRM_Sepa_Page_CloseGroup extends CRM_Core_Page {
                   }
                   // this call doesn't return (redirect to runner)
                   CRM_Sepa_Logic_Queue_Close::launchCloseRunner(array($group_id), $target_group_status, $target_contribution_status);
+
+                  CRM_Core_Session::setStatus(ts(
+                    "Tasks for closing SEPA group (ID: %1) have been added to a queue for background execution",
+                    [ 1 => $group_id, 'domain' => 'org.project60.sepa' ],
+                    'info'
+                  ));
+
+                  CRM_Utils_System::redirect(CRM_Utils_System::url('civicrm/sepa/dashboard'));
                 }
 
                 $result = civicrm_api('SepaAlternativeBatching', 'close', array('version'=>3, 'txgroup_id'=>$group_id));
