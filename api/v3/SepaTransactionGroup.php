@@ -202,6 +202,7 @@ $total += $new["total_amount"];
 ++$counter;
 continue;
 */
+    // TODO: API3
     $result = civicrm_api('contribution', 'create',$new);
     if ($result['is_error']) {
       $output[] = $result['error_message'];

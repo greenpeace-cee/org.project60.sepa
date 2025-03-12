@@ -535,14 +535,20 @@ function sepa_civicrm_tokenValues(&$values, $cids, $job = null, $tokens = array(
 
       // load and copy the contribution information
       if ($mandate['entity_table'] == 'civicrm_contribution') {
-        $contribution = civicrm_api3('Contribution', 'getsingle', array('id' => $mandate['entity_id']));
+        $contribution = \Civi\Api4\Contribution::get(FALSE)
+          ->addWhere('id', '=', $mandate['entity_id'])
+          ->execute()
+          ->first();
         $values[$result->contact_id]["$prefix.amount"]           = $contribution['total_amount'];
         $values[$result->contact_id]["$prefix.currency"]         = $contribution['currency'];
         $values[$result->contact_id]["$prefix.amount_text"]      = CRM_Utils_Money::format($contribution['total_amount'], $contribution['currency']);
         $values[$result->contact_id]["$prefix.first_collection"] = $contribution['receive_date'];
 
       } elseif ($mandate['entity_table'] == 'civicrm_contribution_recur') {
-        $rcontribution = civicrm_api3('ContributionRecur', 'getsingle', array('id' => $mandate['entity_id']));
+        $rcontribution = \Civi\Api4\ContributionRecur::get(FALSE)
+          ->addWhere('id', '=', $mandate['entity_id'])
+          ->execute()
+          ->first();
         $values[$result->contact_id]["$prefix.amount"]             = $rcontribution['amount'];
         $values[$result->contact_id]["$prefix.currency"]           = $rcontribution['currency'];
         $values[$result->contact_id]["$prefix.amount_text"]        = CRM_Utils_Money::format($rcontribution['amount'], $rcontribution['currency']);
@@ -559,7 +565,10 @@ function sepa_civicrm_tokenValues(&$values, $cids, $job = null, $tokens = array(
 
         } else {
           // use date of first contribution
-          $fcontribution = civicrm_api3('Contribution', 'getsingle', array('id' => $mandate['first_contribution_id']));
+          $fcontribution = \Civi\Api4\Contribution::get(FALSE)
+            ->addWhere('id', '=', $mandate['first_contribution_id'])
+            ->execute()
+            ->first();
           $values[$result->contact_id]["$prefix.first_collection"] = $fcontribution['receive_date'];
         }
       }
