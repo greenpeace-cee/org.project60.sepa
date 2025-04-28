@@ -327,15 +327,16 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate {
 
     // then: cancel the associated contribution
     $contribution_id_cancelled = (int) CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Cancelled');
-    $result = civicrm_api('Contribution', 'create', array(
-      'version'                   => 3,
-      'id'                        => $contribution_id,
-      'contribution_status_id'    => $contribution_id_cancelled,
-      'cancel_reason'             => $cancel_reason,
-      'cancel_date'               => date('YmdHis', strtotime($new_end_date_str))
-    ));
-    if (!empty($result['is_error'])) {
-      CRM_Core_Session::setStatus(sprintf(ts("Cannot properly end mandate [%s]. Error was: '%s'", array('domain' => 'org.project60.sepa')), $mandate_id, $result['error_message']), ts('Error'), 'warn');
+
+    try {
+      \Civi\Api4\Contribution::update(FALSE)
+        ->addValue('contribution_status_id', $contribution_id_cancelled)
+        ->addValue('cancel_reason', $cancel_reason)
+        ->addValue('cancel_date', date('YmdHis', strtotime($new_end_date_str)))
+        ->addWhere('id', '=', $contribution_id)
+        ->execute();
+    } catch (Exception $e) {
+      CRM_Core_Session::setStatus(sprintf(ts("Cannot properly end mandate [%s]. Error was: '%s'", array('domain' => 'org.project60.sepa')), $mandate_id, $e->getMessage()), ts('Error'), 'warn');
     }
 
     // finally: remove contribution from any open SEPA groups
@@ -401,10 +402,13 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate {
 
     // load the contribution
     $contribution_id = $mandate['entity_id'];
-    $contribution = civicrm_api('ContributionRecur', "getsingle", array('id'=>$contribution_id, 'version'=>3));
-    if (isset($contribution['is_error']) && $contribution['is_error']) {
+    $contribution = \Civi\Api4\ContributionRecur::get(FALSE)
+      ->addWhere('id', '=', $contribution_id)
+      ->execute()
+      ->first();
+    if (empty($contribution)) {
       $lock->release();
-      $error_message = sprintf(ts("Cannot read contribution [%s]. Error was: '%s'", array('domain' => 'org.project60.sepa')), $contribution_id, $contribution['error_message']);
+      $error_message = sprintf(ts("Cannot find contribution [%s].", array('domain' => 'org.project60.sepa')), $contribution_id);
       if ($error_to_ui) {
         CRM_Core_Session::setStatus($error_message, ts('Error'), 'error');
         return FALSE;
@@ -429,19 +433,15 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate {
     }
 
     // actually set the date
-    $query = array(
-      'version'   => 3,
-      'id'        => $contribution_id,
-      'currency'  => $contribution['currency'],
-      'end_date'  => date('YmdHis', $new_end_date));
+    $update = \Civi\Api4\ContributionRecur::update(FALSE)
+      ->addValue('end_date', date('YmdHis', $new_end_date))
+      ->addWhere('id', '=', $contribution_id);
     if ($cancel_reason) {
-      // FIXME: cancel_reason does not exist in contribution_recur!!
-      //$query['cancel_reason'] = $cancel_reason;
-      $query['cancel_date'] = $query['end_date'];
+      $update->addValue('cancel_date', date('YmdHis', $new_end_date))
+        ->addValue('cancel_reason', $cancel_reason);
     }
-
-    $result = civicrm_api("ContributionRecur", "create", $query);
-    if (isset($result['is_error']) && $result['is_error']) {
+    $result = $update->execute();
+    if (empty($result)) {
       $lock->release();
       $error_message = sprintf(ts("Cannot modify recurring contribution [%s]. Error was: '%s'", array('domain' => 'org.project60.sepa')), $contribution_id, $result['error_message']);
       if ($error_to_ui) {
@@ -450,23 +450,6 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate {
       } else {
         throw new Exception($error_message);
       }
-    }
-
-    // set the cancel reason
-    if ($cancel_reason) {
-      // ..and create a note, since the contribution_recur does not have cancel_reason
-
-      // FIXME: this is a workaround due to CRM-14901,
-      //   see https://github.com/Project60/org.project60.sepa/issues/401
-      $create_note_query = "
-      INSERT INTO civicrm_note (entity_table, entity_id, modified_date, subject, note, privacy)
-             VALUES('civicrm_contribution_recur', %1, %2, 'cancel_reason', %3, 0)";
-      $create_note_parameters = array(
-        1 => array($contribution_id, 'Integer'),
-        2 => array(date('YmdHis'), 'String'),
-        3 => array($cancel_reason, 'String'),
-      );
-      CRM_Core_DAO::executeQuery($create_note_query, $create_note_parameters);
     }
 
     // find already created contributions that are now obsolete...

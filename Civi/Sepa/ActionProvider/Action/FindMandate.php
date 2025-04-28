@@ -151,9 +151,10 @@ class FindMandate extends CreateRecurringMandate {
       // these output values depend on the type
       switch ($mandate['type']) {
         case 'RCUR':
-          $recurring_contribution = civicrm_api3('ContributionRecur', 'getsingle', [
-            'id' => $mandate['entity_id']
-          ]);
+          $recurring_contribution = \Civi\Api4\ContributionRecur::get(FALSE)
+            ->addWhere('id', '=', $mandate['entity_id'])
+            ->execute()
+            ->first();
           $output->setParameter('amount', $recurring_contribution['amount']);
           $output->setParameter('cycle_day', $recurring_contribution['cycle_day']);
           $output->setParameter('financial_type_id', $recurring_contribution['financial_type_id']);
@@ -174,9 +175,10 @@ class FindMandate extends CreateRecurringMandate {
           break;
 
         case 'OOFF':
-          $contribution = civicrm_api3('Contribution', 'getsingle', [
-            'id' => $mandate['entity_id']
-          ]);
+          $contribution = \Civi\Api4\Contribution::get(FALSE)
+            ->addWhere('id', '=', $mandate['entity_id'])
+            ->execute()
+            ->first();
           $output->setParameter('amount', $contribution['total_amount']);
           $output->setParameter('financial_type_id', $contribution['financial_type_id']);
           $output->setParameter('campaign_id', $contribution['campaign_id']);
