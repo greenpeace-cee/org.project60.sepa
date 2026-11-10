@@ -42,17 +42,20 @@ class ContributionUtil {
   /**
    * Retrieves the list of (active) financial types.
    *
+   * @param bool $checkPermissions
+   *   Whether to check permissions for financial types for evaluating
+   *   Financial ACLs.
+   *
    * @return array<int, string>
    *   An array of financial type names, keyed by their ID.
    */
-  public static function getFinancialTypeList(): array {
-  // Check permissions for financial types for evaluating Financial ACLs.
-  return FinancialType::get()
-    ->addSelect('id', 'name')
-    ->addWhere('is_active', '=', TRUE)
-    ->execute()
-    ->indexBy('id')
-    ->column('name');
-}
+  public static function getFinancialTypeList(bool $checkPermissions = TRUE): array {
+    return FinancialType::get($checkPermissions)
+      ->addSelect('id', 'name')
+      ->addWhere('is_active', '=', TRUE)
+      ->execute()
+      ->indexBy('id')
+      ->column('name');
+  }
 
 }

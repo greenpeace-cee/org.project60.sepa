@@ -364,10 +364,11 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate implements HookI
    * @param $error_to_ui       bool   if TRUE will write errors to Session::status and return FALSE
    *                                     else will throw errors
    * @param $cancel_reason     string cancel reason to set
+   * @param $check_permissions bool   if TRUE will check permissions when loading the mandate
    * @return boolean success
    * @author endres -at- systopia.de
    */
-  static function terminateMandate($mandate_id, $new_end_date_str, $cancel_reason=NULL, $error_to_ui = TRUE) {
+  static function terminateMandate($mandate_id, $new_end_date_str, $cancel_reason=NULL, $error_to_ui = TRUE, $check_permissions = TRUE) {
     $contribution_id_pending = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
     // use a lock, in case somebody is batching just now
     $lock = SepaBatchLockManager::getInstance()->getLock();
@@ -383,7 +384,7 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate implements HookI
 
      // first, load the mandate
     try {
-      $mandate = SepaMandate::get(TRUE)
+      $mandate = SepaMandate::get($check_permissions)
         ->addWhere('id', '=', $mandate_id)
         ->execute()
         ->single();
@@ -548,7 +549,7 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate implements HookI
    * @return mixed success
    * @author endres -at- systopia.de
    */
-  static function modifyMandate($mandate_id, $changes) {
+  static function modifyMandate($mandate_id, $changes, $check_permissions = TRUE) {
     // use a lock, in case somebody is batching just now
     $lock = SepaBatchLockManager::getInstance()->getLock();
     if (!$lock->acquire()) {
@@ -557,7 +558,7 @@ class CRM_Sepa_BAO_SEPAMandate extends CRM_Sepa_DAO_SEPAMandate implements HookI
     }
 
     // load the mandate
-    $mandate = SepaMandate::get(TRUE)
+    $mandate = SepaMandate::get($check_permissions)
       ->addWhere('id', '=', $mandate_id)
       ->execute()
       ->single();

@@ -111,10 +111,13 @@ function civicrm_api3_sepa_mandate_createfull($params) {
       }
     }
 
-    // Validate financial type.
+    // Validate financial type and check permissions if requested
     if (
       is_numeric($params['financial_type_id'] ?? NULL)
-      && !array_key_exists($params['financial_type_id'], \Civi\Sepa\Util\ContributionUtil::getFinancialTypeList())
+      && !array_key_exists(
+        $params['financial_type_id'],
+        \Civi\Sepa\Util\ContributionUtil::getFinancialTypeList(!empty($params['check_permissions']))
+      )
     ) {
       throw new CRM_Core_Exception("No permission for creating SEPA mandates with financial type [{$params['financial_type_id']}].");
     }
@@ -442,7 +445,7 @@ function civicrm_api3_sepa_mandate_modify($params) {
   // look up mandate ID if only reference is given
   if (empty($params['mandate_id']) && !empty($params['reference'])) {
     try {
-      $params['mandate_id'] = \Civi\Api4\SepaMandate::get(TRUE)
+      $params['mandate_id'] = \Civi\Api4\SepaMandate::get(!empty($params['check_permissions']))
         ->addSelect('id')
         ->addWhere('reference', '=', $params['reference'])
         ->execute()
@@ -459,7 +462,7 @@ function civicrm_api3_sepa_mandate_modify($params) {
   }
 
   try {
-    $changes = CRM_Sepa_BAO_SEPAMandate::modifyMandate($params['mandate_id'], $params);
+    $changes = CRM_Sepa_BAO_SEPAMandate::modifyMandate($params['mandate_id'], $params, !empty($params['check_permissions']));
     return civicrm_api3_create_success($changes);
   } catch (Exception $e) {
     return civicrm_api3_create_error($e->getMessage());
@@ -524,7 +527,7 @@ function civicrm_api3_sepa_mandate_terminate($params) {
   // look up mandate ID if only reference is given
   if (empty($params['mandate_id']) && !empty($params['reference'])) {
     try {
-      $params['mandate_id'] = \Civi\Api4\SepaMandate::get(TRUE)
+      $params['mandate_id'] = \Civi\Api4\SepaMandate::get(!empty($params['check_permissions']))
         ->addSelect('id')
         ->addWhere('reference', '=', $params['reference'])
         ->execute()
@@ -545,7 +548,8 @@ function civicrm_api3_sepa_mandate_terminate($params) {
       $params['mandate_id'],
       date('Y-m-d', strtotime($params['end_date'] ?? 'today')),
       $params['cancel_reason'] ?? NULL,
-      FALSE);
+      FALSE,
+      !empty($params['check_permissions']));
     if ($success) {
       return civicrm_api3_create_success();
     } else {
