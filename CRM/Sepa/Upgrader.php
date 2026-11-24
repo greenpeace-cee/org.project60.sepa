@@ -493,4 +493,23 @@ class CRM_Sepa_Upgrader extends CRM_Sepa_Upgrader_Base {
     $customData->syncOptionGroup(E::path('resources/formats_option_group.json'));
     return TRUE;
   }
+
+  /**
+   * Add new file format pain.008.001.08
+   *
+   * Backport of upstream upgrade_11307. Numbered 1805 (instead of 11307) so
+   * that upstream upgrades 11301-11306 are not skipped when moving to
+   * upstream >= 1.14 later on. Re-running the upstream step is harmless, the
+   * option group sync is idempotent.
+   *
+   * @return TRUE on success
+   * @throws Exception
+   */
+  public function upgrade_1805() {
+    $this->ctx->log->info('pain.008.001.08 (ISO 20022/official SEPA guidelines) format');
+    $customData = new CRM_Sepa_CustomData(E::LONG_NAME);
+    $customData->syncOptionGroup(E::path('resources/formats_option_group.json'));
+
+    return TRUE;
+  }
 }

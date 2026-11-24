@@ -644,4 +644,54 @@ class CRM_Sepa_TestBase extends \PHPUnit\Framework\TestCase implements HeadlessI
 
   #endregion
 
+  #region Format helpers
+
+  /**
+   * Creates a creditor using the given file format, a single OOFF mandate,
+   * batches and closes the resulting transaction group, which creates the
+   * SEPA file for it (same flow as in the UI).
+   *
+   * Adapted from upstream (Project60/org.project60.sepa#844) to the APIv3
+   * helpers available on this branch.
+   *
+   * @param array $creditorParams
+   *   Creditor parameters, 'sepa_file_format_id:name' is resolved to the
+   *   option value.
+   * @param array $mandateParams
+   *   Mandate parameters passed to createMandate().
+   *
+   * @return array
+   *   The SepaSddFile.
+   */
+  protected function prepareSddFileForXmlGeneration(array $creditorParams, array $mandateParams): array
+  {
+    if (isset($creditorParams['sepa_file_format_id:name'])) {
+      $creditorParams['sepa_file_format_id'] = $this->callAPISuccessGetValue('OptionValue', [
+        'return' => 'value',
+        'option_group_id' => 'sepa_file_format',
+        'name' => $creditorParams['sepa_file_format_id:name'],
+      ]);
+      unset($creditorParams['sepa_file_format_id:name']);
+    }
+    $creditorId = $this->getCustomCreditor($creditorParams);
+
+    $mandateParams['creditor_id'] = $creditorId;
+    $this->createMandate($mandateParams);
+    $this->executeBatching(self::MANDATE_TYPE_OOFF);
+
+    $group = $this->callAPISuccessGetSingle('SepaTransactionGroup', [
+      'sdd_creditor_id' => $creditorId,
+      'type' => self::MANDATE_TYPE_OOFF,
+    ]);
+    $this->closeTransactionGroup($group['id']);
+
+    // closing the group creates the SEPA file
+    $fileId = $this->getTransactionGroup($group['id'])['sdd_file_id'] ?? NULL;
+    $this->assertNotEmpty($fileId, 'Closing the transaction group did not create a SEPA file');
+
+    return $this->callAPISuccessGetSingle('SepaSddFile', ['id' => $fileId]);
+  }
+
+  #endregion
+
 }
