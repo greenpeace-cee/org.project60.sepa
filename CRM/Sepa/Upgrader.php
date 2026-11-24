@@ -512,4 +512,21 @@ class CRM_Sepa_Upgrader extends CRM_Sepa_Upgrader_Base {
 
     return TRUE;
   }
+
+  /**
+   * Add new file formats pain.008.001.08_ALLOWNOBIC and pain.008.001.08_NOBIC
+   *
+   * Backport of upstream upgrade_11401 (Project60/org.project60.sepa#844),
+   * numbered 1806 for the same reason as upgrade_1805.
+   *
+   * @return TRUE on success
+   * @throws Exception
+   */
+  public function upgrade_1806() {
+    $this->ctx->log->info('pain.008.001.08 without BIC format');
+    $customData = new CRM_Sepa_CustomData(E::LONG_NAME);
+    $customData->syncOptionGroup(E::path('resources/formats_option_group.json'));
+
+    return TRUE;
+  }
 }
